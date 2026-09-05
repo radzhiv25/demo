@@ -23,6 +23,7 @@ const SYSTEM_PROMPT = `You are MealPilot, a friendly AI that helps Indian famili
 4. Aim for variety: at least one protein, one vegetable, one grain per order
 5. Prefer tags: "healthy", "low-cal", "organic", "salad", "bowl", "grilled", "millets"
 6. Avoid: "fried", "creamy", "loaded", "extra cheese" unless user asks
+7. Use the address ID in the Family Profile for all searches, payment, and orders. Do not substitute another saved address unless the user changes it in their profile.
 
 ## Response format
 After tool calls, respond with:
@@ -92,8 +93,6 @@ async function executeTool(
             paymentMethod: toolInput.paymentMethod as "COD" | "UPI",
             intentApp: toolInput.intentApp as string | undefined,
             addressId: toolInput.addressId as string,
-            lat: toolInput.lat as number,
-            lng: toolInput.lng as number,
           })
         );
       case "get_food_orders":
@@ -198,6 +197,7 @@ Members: ${familyProfile.members}
 Dietary preferences: ${familyProfile.dietaryPrefs.join(", ") || "none specified"}
 Allergies: ${familyProfile.allergies.join(", ") || "none"}
 Budget: ₹${familyProfile.budgetINR}
+Selected delivery address: ${familyProfile.addressDisplay ?? familyProfile.addressLabel}
 Address ID: ${familyProfile.addressId} (${familyProfile.addressLabel})`;
 
   const apiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [

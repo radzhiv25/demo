@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChatMessage } from "@/components/chat-message";
 import { loadProfile, DEFAULT_PROFILE, type FamilyProfile } from "@/lib/family-profile";
 import { cn } from "@/lib/utils";
-import { Salad, Users, Wallet, Send, ChevronDown } from "lucide-react";
+import { Salad, Users, Wallet, Send, ChevronDown, MapPin } from "lucide-react";
 
 type Backend = "demo" | "ollama" | "openrouter";
 
@@ -32,6 +32,7 @@ const BACKEND_OPTIONS: { value: Backend; label: string; description: string }[] 
 
 export default function ChatPage() {
   const [profile, setProfile] = useState<FamilyProfile>(DEFAULT_PROFILE);
+  const [profileReady, setProfileReady] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -44,6 +45,7 @@ export default function ChatPage() {
   useEffect(() => {
     const saved = loadProfile();
     if (saved) setProfile(saved);
+    setProfileReady(true);
     // Read default backend from a server hint if available
     const storedBackend = localStorage.getItem("mealpilot_backend") as Backend | null;
     if (storedBackend) setBackend(storedBackend);
@@ -71,7 +73,7 @@ export default function ChatPage() {
   }
 
   async function sendMessage(text: string) {
-    if (!text.trim() || isLoading) return;
+    if (!text.trim() || isLoading || !profileReady) return;
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -156,6 +158,11 @@ export default function ChatPage() {
               <span>·</span>
               <Wallet className="size-3" />
               <span>₹{profile.budgetINR}</span>
+              <span>·</span>
+              <span className="flex items-center gap-1 max-w-40" title={profile.addressDisplay}>
+                <MapPin className="size-3 shrink-0" />
+                <span className="truncate">{profile.addressLabel}</span>
+              </span>
             </div>
 
             {/* Backend toggle */}
@@ -231,7 +238,7 @@ export default function ChatPage() {
               Tell me what healthy meal you need and I&apos;ll search Swiggy, build your
               cart, and help you order — all in one conversation.
             </p>
-            <p className="text-[11px] text-muted-foreground mb-8">
+            <p className="text-[11px] text-muted-foreground mb-4">
               Running in{" "}
               <span className={cn(
                 "font-medium",
@@ -242,12 +249,24 @@ export default function ChatPage() {
                 {currentBackend.label}
               </span>
             </p>
+            <div className="mb-5 flex max-w-sm items-start gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2 text-left">
+              <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-foreground">
+                  Searching near {profile.addressLabel}
+                </p>
+                <p className="truncate text-[11px] text-muted-foreground" title={profile.addressDisplay}>
+                  {profileReady ? profile.addressDisplay : "Loading saved address..."}
+                </p>
+              </div>
+            </div>
             <div className="flex flex-col gap-2 w-full max-w-sm">
               {SUGGESTED_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => sendMessage(prompt)}
-                  className="text-left text-sm px-4 py-2.5 rounded-xl border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-foreground"
+                  disabled={!profileReady}
+                  className="text-left text-sm px-4 py-2.5 rounded-xl border border-border hover:border-primary/50 hover:bg-muted/50 transition-all text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {prompt}
                 </button>
@@ -279,9 +298,11 @@ export default function ChatPage() {
                 <button
                   key={prompt}
                   onClick={() => sendMessage(prompt)}
+                  disabled={!profileReady}
                   className={cn(
                     "shrink-0 text-xs px-3 py-1.5 rounded-full border border-border",
-                    "hover:border-primary/50 hover:bg-muted/50 transition-all text-muted-foreground whitespace-nowrap"
+                    "hover:border-primary/50 hover:bg-muted/50 transition-all text-muted-foreground whitespace-nowrap",
+                    "disabled:cursor-not-allowed disabled:opacity-60"
                   )}
                 >
                   {prompt}
@@ -298,7 +319,7 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="e.g. Find healthy dinner for my family tonight…"
-              disabled={isLoading}
+              disabled={isLoading || !profileReady}
               className={cn(
                 "flex-1 border border-border rounded-xl px-4 py-2.5 text-sm bg-background",
                 "outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all",
@@ -307,7 +328,7 @@ export default function ChatPage() {
             />
             <Button
               onClick={() => sendMessage(input)}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || !profileReady}
               size="icon"
               className="size-10 rounded-xl shrink-0"
             >

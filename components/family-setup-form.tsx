@@ -1,11 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { saveProfile, DIETARY_OPTIONS, type FamilyProfile } from "@/lib/family-profile";
+import { loadProfile, saveProfile, DIETARY_OPTIONS, type FamilyProfile } from "@/lib/family-profile";
+import type { SwiggyAddress } from "@/lib/swiggy/types";
 import { cn } from "@/lib/utils";
-import { Minus, Plus } from "lucide-react";
+import { Check, Crosshair, MapPin, Minus, Plus } from "lucide-react";
+
+type AddressCategory = "HOME" | "WORK" | "OFFICE" | "FRIENDS_AND_FAMILY" | "OTHER";
+
+const ADDRESS_CATEGORIES: { value: AddressCategory; label: string }[] = [
+  { value: "HOME", label: "Home" },
+  { value: "WORK", label: "Work" },
+  { value: "OFFICE", label: "Office" },
+  { value: "FRIENDS_AND_FAMILY", label: "Friends & family" },
+  { value: "OTHER", label: "Other" },
+];
 
 export function FamilySetupForm() {
   const router = useRouter();
@@ -13,7 +24,70 @@ export function FamilySetupForm() {
   const [budget, setBudget] = useState(800);
   const [dietaryPrefs, setDietaryPrefs] = useState<string[]>(["vegetarian"]);
   const [allergies, setAllergies] = useState("");
+  const [addresses, setAddresses] = useState<SwiggyAddress[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState("");
+  const [addressError, setAddressError] = useState("");
+  const [isLoadingAddresses, setIsLoadingAddresses] = useState(true);
+  const [isAddingAddress, setIsAddingAddress] = useState(false);
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [newAddress, setNewAddress] = useState({
+    fullAddress: "",
+    userName: "",
+    userPhone: "",
+    addressCategory: "HOME" as AddressCategory,
+    addressTag: "",
+    latitude: undefined as number | undefined,
+    longitude: undefined as number | undefined,
+  });
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadAddresses() {
+      try {
+        const savedProfile = loadProfile();
+        if (savedProfile) {
+          setMembers(savedProfile.members);
+          setBudget(savedProfile.budgetINR);
+          setDietaryPrefs(savedProfile.dietaryPrefs);
+          setAllergies(savedProfile.allergies.join(", "));
+        }
+
+        const response = await fetch("/api/addresses");
+        const payload = (await response.json()) as {
+          addresses?: SwiggyAddress[];
+          error?: string;
+        };
+        if (!response.ok) throw new Error(payload.error ?? "Unable to load saved addresses.");
+        if (!isCurrent) return;
+
+        const savedAddresses = payload.addresses ?? [];
+        setAddresses(savedAddresses);
+        const savedAddressStillExists = savedAddresses.some(
+          (address) => address.addressId === savedProfile?.addressId
+        );
+        setSelectedAddressId(
+          savedAddressStillExists ? savedProfile!.addressId : savedAddresses[0]?.addressId ?? ""
+        );
+        if (!savedAddresses.length) {
+          setAddressError("No saved Swiggy addresses were found. Add one below to continue.");
+        }
+      } catch (error) {
+        if (isCurrent) {
+          setAddressError(error instanceof Error ? error.message : "Unable to load saved addresses.");
+        }
+      } finally {
+        if (isCurrent) setIsLoadingAddresses(false);
+      }
+    }
+
+    void loadAddresses();
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
 
   function toggleDiet(value: string) {
     setDietaryPrefs((prev) =>
@@ -21,10 +95,8 @@ export function FamilySetupForm() {
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    const profile: FamilyProfile = {
+  function buildProfile(selectedAddress: SwiggyAddress): FamilyProfile {
+    return {
       members,
       dietaryPrefs,
       allergies: allergies
@@ -32,15 +104,218 @@ export function FamilySetupForm() {
         .map((s) => s.trim())
         .filter(Boolean),
       budgetINR: budget,
-      addressId: "addr_001",
-      addressLabel: "Home",
+      addressId: selectedAddress.addressId,
+      addressLabel: selectedAddress.label,
+      addressDisplay: selectedAddress.fullAddress,
     };
-    saveProfile(profile);
+  }
+
+  function selectAddress(address: SwiggyAddress) {
+    setSelectedAddressId(address.addressId);
+    setAddressError("");
+    saveProfile(buildProfile(address));
+  }
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setAddressError("Your browser does not support location access. Enter the address manually.");
+      return;
+    }
+
+    setIsLocating(true);
+    setAddressError("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setNewAddress((current) => ({
+          ...current,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        }));
+        setIsLocating(false);
+      },
+      () => {
+        setAddressError("We could not access your location. Check browser permission or enter the address manually.");
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10_000 }
+    );
+  }
+
+  async function saveNewAddress() {
+    if (!newAddress.fullAddress || !newAddress.userName || !newAddress.userPhone) {
+      setAddressError("Enter your complete address, name, and phone number to save this location.");
+      return;
+    }
+
+    setIsSavingAddress(true);
+    setAddressError("");
+    try {
+      const response = await fetch("/api/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newAddress),
+      });
+      const payload = (await response.json()) as { address?: SwiggyAddress; error?: string };
+      if (!response.ok || !payload.address) throw new Error(payload.error ?? "Unable to save this address.");
+
+      setAddresses((current) => [...current, payload.address!]);
+      setSelectedAddressId(payload.address.addressId);
+      saveProfile(buildProfile(payload.address));
+      setIsAddingAddress(false);
+      setNewAddress({
+        fullAddress: "", userName: "", userPhone: "", addressCategory: "HOME", addressTag: "",
+        latitude: undefined, longitude: undefined,
+      });
+    } catch (error) {
+      setAddressError(error instanceof Error ? error.message : "Unable to save this address.");
+    } finally {
+      setIsSavingAddress(false);
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const selectedAddress = addresses.find((address) => address.addressId === selectedAddressId);
+    if (!selectedAddress) {
+      setAddressError("Choose a delivery address before continuing.");
+      return;
+    }
+    setSaving(true);
+    saveProfile(buildProfile(selectedAddress));
     router.push("/chat");
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
+      {/* Delivery address */}
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">
+          Delivery location
+        </label>
+        <p className="text-xs text-muted-foreground mb-3">
+          Choose the saved Swiggy address where you want meals delivered.
+        </p>
+
+        {isLoadingAddresses ? (
+          <div className="border border-border rounded-xl px-3 py-3 text-sm text-muted-foreground">
+            Loading saved addresses…
+          </div>
+        ) : addresses.length > 0 ? (
+          <div className="space-y-2">
+            {addresses.map((address) => {
+              const isSelected = address.addressId === selectedAddressId;
+              return (
+                <button
+                  key={address.addressId}
+                  type="button"
+                  onClick={() => selectAddress(address)}
+                  className={cn(
+                    "w-full flex items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors",
+                    isSelected
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50 hover:bg-muted/50"
+                  )}
+                >
+                  <MapPin className="size-4 shrink-0 mt-0.5 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-foreground">{address.label}</span>
+                    <span className="block text-xs leading-relaxed text-muted-foreground mt-0.5">
+                      {address.fullAddress}
+                    </span>
+                  </span>
+                  {isSelected && <Check className="size-4 shrink-0 mt-0.5 text-primary" />}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsAddingAddress((current) => !current);
+            setAddressError("");
+          }}
+          className="text-sm font-medium text-primary mt-3 hover:underline"
+        >
+          {isAddingAddress ? "Cancel adding an address" : "+ Add a new delivery location"}
+        </button>
+
+        {isAddingAddress && (
+          <div className="mt-3 rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-foreground">New delivery location</p>
+              <button
+                type="button"
+                onClick={useCurrentLocation}
+                disabled={isLocating}
+                className="flex items-center gap-1.5 text-xs font-medium text-primary disabled:opacity-60"
+              >
+                <Crosshair className="size-3.5" />
+                {isLocating ? "Finding you…" : "Use my current location"}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {newAddress.latitude !== undefined
+                ? "Current location captured. Add your complete delivery address to save it."
+                : "Add your full address, including city and 6-digit PIN code."}
+            </p>
+            <textarea
+              value={newAddress.fullAddress}
+              onChange={(event) => setNewAddress((current) => ({ ...current, fullAddress: event.target.value }))}
+              placeholder="e.g. Flat 12B, 100 Feet Road, Indiranagar, Bengaluru 560038"
+              rows={3}
+              className="w-full resize-none border border-border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input
+                value={newAddress.userName}
+                onChange={(event) => setNewAddress((current) => ({ ...current, userName: event.target.value }))}
+                placeholder="Your name"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary"
+              />
+              <input
+                inputMode="tel"
+                value={newAddress.userPhone}
+                onChange={(event) => setNewAddress((current) => ({ ...current, userPhone: event.target.value }))}
+                placeholder="Your phone number"
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ADDRESS_CATEGORIES.map((category) => (
+                <button
+                  key={category.value}
+                  type="button"
+                  onClick={() => setNewAddress((current) => ({ ...current, addressCategory: category.value }))}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs transition-colors",
+                    newAddress.addressCategory === category.value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background hover:border-primary/50"
+                  )}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </div>
+            <input
+              value={newAddress.addressTag}
+              onChange={(event) => setNewAddress((current) => ({ ...current, addressTag: event.target.value }))}
+              placeholder="Location label (optional), e.g. Grandma's home"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-background outline-none focus:border-primary"
+            />
+            <Button type="button" onClick={saveNewAddress} disabled={isSavingAddress} className="w-full">
+              {isSavingAddress ? "Saving location…" : "Save delivery location"}
+            </Button>
+          </div>
+        )}
+
+        {addressError && (
+          <p className="text-xs text-destructive mt-2" role="alert">{addressError}</p>
+        )}
+      </div>
+
       {/* Family size */}
       <div>
         <label className="text-sm font-medium text-foreground mb-3 block">
@@ -136,7 +411,7 @@ export function FamilySetupForm() {
         type="submit"
         size="lg"
         className="w-full h-11 text-sm font-semibold rounded-xl"
-        disabled={saving}
+        disabled={saving || isLoadingAddresses || !selectedAddressId}
       >
         {saving ? "Saving..." : "Save & Go to MealPilot"}
       </Button>

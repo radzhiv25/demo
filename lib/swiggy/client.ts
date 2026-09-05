@@ -63,14 +63,88 @@ async function rpc<T>(
 
 export async function getAddresses(): Promise<SwiggyAddress[]> {
   if (IS_MOCK) return mock.mockGetAddresses();
-  return rpc("food", "get_addresses", {});
+  const result = await rpc<{
+    addresses?: Array<{
+      id?: string;
+      addressId?: string;
+      addressLine?: string;
+      addressCategory?: string;
+      addressTag?: string;
+    }>;
+  } | SwiggyAddress[]>("food", "get_addresses", {});
+
+  if (Array.isArray(result)) return result;
+
+  return (result.addresses ?? []).flatMap((address) => {
+    const addressId = address.id ?? address.addressId;
+    if (!addressId || !address.addressLine) return [];
+    return [{
+      addressId,
+      label: address.addressTag ?? address.addressCategory ?? "Saved address",
+      fullAddress: address.addressLine,
+    }];
+  });
+}
+
+export interface CreateAddressInput {
+  fullAddress: string;
+  userName: string;
+  userPhone: string;
+  addressCategory: "HOME" | "WORK" | "OFFICE" | "FRIENDS_AND_FAMILY" | "OTHER";
+  addressTag?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+function parseAddress(fullAddress: string) {
+  const normalizedAddress = fullAddress.trim().replace(/\s+/g, " ");
+  const postalCode = normalizedAddress.match(/\b\d{6}\b/)?.[0];
+  const parts = normalizedAddress.split(",").map((part) => part.trim()).filter(Boolean);
+  const finalPart = parts.at(-1)?.replace(/\b\d{6}\b/, "").replace(/[-–]/g, "").trim();
+  const city = finalPart || parts.at(-2)?.replace(/\b\d{6}\b/, "").trim();
+
+  if (!postalCode || !city || !parts[0]) {
+    throw new Error("Include your complete address with city and 6-digit PIN code.");
+  }
+
+  return {
+    addressLine: parts[0],
+    addressLine2: parts.slice(1, -1).join(", "),
+    locality: parts.length > 2 ? parts[1] : undefined,
+    city,
+    postalCode,
+  };
+}
+
+export async function createAddress(input: CreateAddressInput): Promise<SwiggyAddress> {
+  if (IS_MOCK) return mock.mockCreateAddress(input);
+
+  const parsedAddress = parseAddress(input.fullAddress);
+  const result = await rpc<{ addressId?: string; id?: string }>("food", "create_address", {
+    fullAddress: input.fullAddress,
+    ...parsedAddress,
+    addressCategory: input.addressCategory,
+    addressTag: input.addressTag,
+    userName: input.userName,
+    userPhone: input.userPhone,
+    latitude: input.latitude,
+    longitude: input.longitude,
+  });
+  const addressId = result.addressId ?? result.id;
+  if (!addressId) throw new Error("Swiggy did not return an address ID.");
+
+  return {
+    addressId,
+    label: input.addressTag ?? input.addressCategory,
+    fullAddress: input.fullAddress,
+  };
 }
 
 export async function searchRestaurants(
   addressId: string,
   query: string
 ): Promise<SwiggyRestaurant[]> {
-  if (IS_MOCK) return mock.mockSearchRestaurants(query);
+  if (IS_MOCK) return mock.mockSearchRestaurants(addressId, query);
   return rpc("food", "search_restaurants", { addressId, query });
 }
 
@@ -128,8 +202,6 @@ export async function placeFoodOrder(args: {
   paymentMethod: "COD" | "UPI";
   intentApp?: string;
   addressId: string;
-  lat: number;
-  lng: number;
 }): Promise<SwiggyOrder> {
   if (IS_MOCK) return mock.mockPlaceFoodOrder(args.paymentMethod);
   return rpc("food", "place_food_order", args);

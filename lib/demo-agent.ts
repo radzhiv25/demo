@@ -107,8 +107,6 @@ export async function runDemoAgent(
     const order = await swiggy.placeFoodOrder({
       paymentMethod: "COD",
       addressId: familyProfile.addressId,
-      lat: 12.9784,
-      lng: 77.6408,
     });
 
     return {
@@ -124,15 +122,11 @@ export async function runDemoAgent(
   }
 
   // ── Default: search + menu + build cart ──────────────────────────────────────
-  track("get_addresses", "Fetched saved addresses");
-  const addresses = await swiggy.getAddresses();
-  const address = addresses.find((a) => a.addressId === familyProfile.addressId) ?? addresses[0];
-
   // Build search query from user message + dietary prefs
   const prefs = familyProfile.dietaryPrefs.join(" ");
   const query = `healthy ${prefs}`;
   track("search_restaurants", `Searched restaurants for "${query}"`);
-  const restaurants = await swiggy.searchRestaurants(address.addressId, query);
+  const restaurants = await swiggy.searchRestaurants(familyProfile.addressId, query);
 
   if (!restaurants.length) {
     return {
@@ -220,6 +214,7 @@ export async function runDemoAgent(
 
   return {
     message:
+      `I searched near **${familyProfile.addressLabel}** (${familyProfile.addressDisplay ?? "selected delivery address"}).\n\n` +
       `Found **${best.name}** (${best.rating}★, ~${best.deliveryTime} min) — here's what I've added to your cart:\n\n` +
       `${itemList}\n\n` +
       `${formatCart(finalCart)}\n\n` +

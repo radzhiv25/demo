@@ -4,8 +4,6 @@ export interface SwiggyAddress {
   addressId: string;
   label: string;
   fullAddress: string;
-  lat: number;
-  lng: number;
 }
 
 export interface SwiggyRestaurant {

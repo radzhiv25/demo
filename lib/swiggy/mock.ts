@@ -10,14 +10,13 @@ import type {
   SwiggyOrder,
   SwiggyTrackingStatus,
 } from "./types";
+import type { CreateAddressInput } from "./client";
 
 export const MOCK_ADDRESSES: SwiggyAddress[] = [
   {
     addressId: "addr_001",
     label: "Home",
     fullAddress: "12, Indiranagar 100 Feet Road, Bangalore - 560038",
-    lat: 12.9784,
-    lng: 77.6408,
   },
 ];
 
@@ -65,6 +64,17 @@ export const MOCK_RESTAURANTS: SwiggyRestaurant[] = [
     deliveryFee: 50,
     tags: ["high-protein", "post-workout"],
     imageUrl: "https://placehold.co/400x200/a78bfa/ffffff?text=The+Protein+Co",
+  },
+  {
+    restaurantId: "rest_005",
+    name: "Urban Millet Café",
+    cuisines: ["Millet Bowls", "South Indian", "Healthy"],
+    rating: 4.7,
+    deliveryTime: 22,
+    availabilityStatus: "OPEN",
+    deliveryFee: 20,
+    tags: ["healthy", "vegetarian", "millets", "local-favourite"],
+    imageUrl: "https://placehold.co/400x200/14b8a6/ffffff?text=Urban+Millet+Cafe",
   },
 ];
 
@@ -207,6 +217,42 @@ const MOCK_MENUS: Record<string, SwiggyMenu> = {
       },
     ],
   },
+  rest_005: {
+    restaurantId: "rest_005",
+    restaurantName: "Urban Millet Café",
+    items: [
+      {
+        itemId: "item_501",
+        name: "Barnyard Millet Veg Bowl",
+        description: "Barnyard millet, seasonal vegetables, moong dal, lemon dressing",
+        price: 240,
+        category: "Millet Bowls",
+        tags: ["healthy", "vegetarian", "millets", "high-fibre"],
+        isVeg: true,
+        calories: 370,
+      },
+      {
+        itemId: "item_502",
+        name: "Ragi Vegetable Uttapam",
+        description: "Fermented ragi batter, tomatoes, onions, carrots, coconut chutney",
+        price: 180,
+        category: "South Indian",
+        tags: ["healthy", "vegetarian", "millets"],
+        isVeg: true,
+        calories: 310,
+      },
+      {
+        itemId: "item_503",
+        name: "Moong Sprout Sundal",
+        description: "Steamed moong sprouts, coconut, curry leaves, mustard tempering",
+        price: 130,
+        category: "Sides",
+        tags: ["healthy", "vegetarian", "high-protein"],
+        isVeg: true,
+        calories: 190,
+      },
+    ],
+  },
 };
 
 // In-memory cart state for mock mode
@@ -221,14 +267,33 @@ let mockCart: SwiggyCart = {
 };
 
 let mockOrderCounter = 1000;
+let mockAddressCounter = 2;
 
 export function mockGetAddresses(): SwiggyAddress[] {
   return MOCK_ADDRESSES;
 }
 
-export function mockSearchRestaurants(query: string): SwiggyRestaurant[] {
+export function mockCreateAddress(input: CreateAddressInput): SwiggyAddress {
+  const address: SwiggyAddress = {
+    addressId: `addr_${String(mockAddressCounter++).padStart(3, "0")}`,
+    label: input.addressTag ?? input.addressCategory,
+    fullAddress: input.fullAddress,
+  };
+  MOCK_ADDRESSES.push(address);
+  return address;
+}
+
+export function mockSearchRestaurants(addressId: string, query: string): SwiggyRestaurant[] {
   const q = query.toLowerCase();
-  return MOCK_RESTAURANTS.filter(
+  // Keep demo mode location-aware so changing the selected address is visible.
+  // Live mode delegates this filtering to Swiggy through the address ID.
+  const restaurantsNearAddress = addressId === "addr_001"
+    ? MOCK_RESTAURANTS
+    : MOCK_RESTAURANTS.filter((restaurant) =>
+        ["rest_003", "rest_005"].includes(restaurant.restaurantId)
+      );
+
+  return restaurantsNearAddress.filter(
     (r) =>
       r.availabilityStatus === "OPEN" &&
       (r.tags.some((t) => q.includes(t) || t.includes(q.split(" ")[0])) ||

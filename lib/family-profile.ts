@@ -8,6 +8,7 @@ export interface FamilyProfile {
   budgetINR: number;
   addressId: string;
   addressLabel: string;
+  addressDisplay: string;
 }
 
 const KEY = "mealpilot_family_profile";
@@ -38,6 +39,7 @@ export const DEFAULT_PROFILE: FamilyProfile = {
   budgetINR: 800,
   addressId: "addr_001",
   addressLabel: "Home",
+  addressDisplay: "12, Indiranagar 100 Feet Road, Bangalore - 560038",
 };
 
 export const DIETARY_OPTIONS = [

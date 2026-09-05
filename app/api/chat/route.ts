@@ -178,7 +178,7 @@ async function handleChat(request: NextRequest) {
       baseURL: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1",
       apiKey: "ollama", // required by SDK, not checked by Ollama
     });
-    model = process.env.OLLAMA_MODEL ?? "qwen2.5:7b";
+    model = process.env.OLLAMA_MODEL ?? "gemma4:31b-cloud";
   } else {
     const apiKey = process.env.OPENROUTER_API_KEY ?? "";
     client = new OpenAI({
